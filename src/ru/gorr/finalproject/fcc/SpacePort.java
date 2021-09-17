@@ -1,4 +1,4 @@
-package ru.gorr.finalproject.models;
+package ru.gorr.finalproject.fcc;
 
 import java.util.function.Consumer;
 
@@ -23,7 +23,7 @@ public class SpacePort {
         if (newsConsumer != null)
             newsConsumer.accept(generateLaunchNews());
         
-        rocket.startFlyingThread(500);
+        rocket.startFlyingThread(10);
     }
     
     private News generateLaunchNews() {

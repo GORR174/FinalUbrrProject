@@ -8,6 +8,7 @@ import ru.gorr.finalproject.utils.SpaceConst;
 
 import java.util.ArrayDeque;
 import java.util.Queue;
+import java.util.function.Function;
 
 public class Rocket extends SpaceMachine {
     private final long timeStep = 100;
@@ -16,6 +17,9 @@ public class Rocket extends SpaceMachine {
     private int stagesCount;
     private RocketStage brakeUnit;
     private Lander lander;
+
+    private Function<Double, Boolean> brakeUnitActivator;
+    private boolean isBrakeUsing = false;
 
     private boolean isFinished = false;
 
@@ -30,10 +34,11 @@ public class Rocket extends SpaceMachine {
         super(name);
     }
 
+    @Override
     public float getWeight() {
         float rocketStagesWeight = rocketStages.stream().reduce(0f, (acc, stage) -> acc + stage.getWeight(), Float::sum);
 
-        return rocketStagesWeight + brakeUnit.getWeight() + lander.getWeight();
+        return rocketStagesWeight + (brakeUnit != null ? brakeUnit.getWeight() : 0) + lander.getWeight();
     }
 
     private void calculate(int timeScale) {
@@ -43,31 +48,45 @@ public class Rocket extends SpaceMachine {
         double earthGravityForce = SpaceConst.G * ((getWeight() * SpaceConst.EARTH_WEIGHT) / (getDistanceToEarthCenter() * getDistanceToEarthCenter()));
         double moonGravityForce = SpaceConst.G * ((getWeight() * SpaceConst.MOON_WEIGHT) / (getDistanceToMoonCenter() * getDistanceToMoonCenter()));
 
-        if (rocketStages.peek() != null) {
-            RocketStage currentStage = rocketStages.peek();
+        if (rocketStages.peek() != null || (brakeUnit != null && brakeUnitActivator.apply(getDistanceToMoon()))) {
+            if (!isBrakeUsing && rocketStages.peek() == null) {
+                isBrakeUsing = true;
+                getTelemetry().sendImportantMessage(
+                        "Начал использовать тормозной двигатель",
+                        TelemetryMessage.Type.INFO
+                );
+            }
+
+            RocketStage currentStage = rocketStages.peek() != null ? rocketStages.peek() : brakeUnit;
             RocketEngine engine = currentStage.getRocketEngine();
 
             currentStage.getFuelTank().reduceFuel((float) (engine.getFuelConsumption() * elapsedSeconds));
 
             double jetThrustForce = engine.getGasExitRate() * engine.getFuelConsumption();
 
-            double forcesSum = -earthGravityForce + moonGravityForce + jetThrustForce;
+            double forcesSum = -earthGravityForce + moonGravityForce + jetThrustForce * (rocketStages.peek() != null ? 1 : -1);
 
             double acceleration = forcesSum / getWeight();
 
             velocity = velocity + acceleration * elapsedSeconds;
 
-            if (velocity > 0) {
-                height += velocity * elapsedSeconds;
-            }
+            height += velocity * elapsedSeconds;
 
             if (currentStage.getFuelTank().getWeight() == 0) {
-                rocketStages.poll();
+                if (rocketStages.peek() != null) {
+                    rocketStages.poll();
 
-                getTelemetry().sendImportantMessage(
-                        "Отделил ступень " + (getCurrentStageNumber() - 1),
-                        TelemetryMessage.Type.DISCONNECT_STAGE
-                );
+                    getTelemetry().sendImportantMessage(
+                            "Отделил ступень " + (getCurrentStageNumber() - 1),
+                            TelemetryMessage.Type.DISCONNECT_STAGE
+                    );
+                } else {
+                    brakeUnit = null;
+                    getTelemetry().sendImportantMessage(
+                            "Отделил тормозной двигатель",
+                            TelemetryMessage.Type.DISCONNECT_STAGE
+                    );
+                }
             }
 
             if (realFlyTime - lastMessageTime >= 3) {
@@ -85,9 +104,7 @@ public class Rocket extends SpaceMachine {
 
             velocity = velocity + acceleration * elapsedSeconds;
 
-            if (velocity > 0) {
-                height += velocity * elapsedSeconds;
-            }
+            height += velocity * elapsedSeconds;
 
             if (realFlyTime - lastMessageTime >= 3) {
                 lastMessageTime = realFlyTime;
@@ -101,6 +118,7 @@ public class Rocket extends SpaceMachine {
 
         if (getDistanceToMoon() <= 0) {
             isFinished = true;
+            getTelemetry().sendImportantMessage("Прилунился со скоростью: " + velocity, TelemetryMessage.Type.FINISHED);
         }
     }
 
@@ -136,8 +154,6 @@ public class Rocket extends SpaceMachine {
                     e.printStackTrace();
                 }
             }
-
-            getTelemetry().sendImportantMessage("Fly complete", TelemetryMessage.Type.FINISHED);
         }).start();
     }
 
@@ -156,6 +172,12 @@ public class Rocket extends SpaceMachine {
 
         public Builder setBrakeUnit(RocketStage brakeUnit) {
             rocket.brakeUnit = brakeUnit;
+
+            return this;
+        }
+
+        public Builder setBrakeUnitActivator(Function<Double, Boolean> brakeUnitActivator) {
+            rocket.brakeUnitActivator = brakeUnitActivator;
 
             return this;
         }

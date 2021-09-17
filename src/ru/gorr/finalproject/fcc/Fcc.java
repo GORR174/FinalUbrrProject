@@ -3,7 +3,6 @@ package ru.gorr.finalproject.fcc;
 import ru.gorr.finalproject.models.machines.RocketFactory;
 import ru.gorr.finalproject.models.news.News;
 import ru.gorr.finalproject.models.machines.Rocket;
-import ru.gorr.finalproject.models.SpacePort;
 import ru.gorr.finalproject.models.telemetry.Telemetry;
 import ru.gorr.finalproject.models.telemetry.TelemetryMessage;
 import ru.gorr.finalproject.models.news.RocketCrashNews;
