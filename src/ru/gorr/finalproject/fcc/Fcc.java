@@ -19,9 +19,8 @@ public class Fcc extends Thread {
         System.out.println(telemetryMessage.getFormattedMessage());
         
         lastRocketMessageTime = System.currentTimeMillis();
-        
-        // TODO: Убрать строковый литерал
-        if (telemetryMessage.getMessage().equals("FINISHED")) {
+
+        if (telemetryMessage.getMessageType() == TelemetryMessage.Type.FINISHED) {
             shouldExit = true;
             new SuccessLandingNews(rocket).print();
         }

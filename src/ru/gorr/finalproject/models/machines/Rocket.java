@@ -3,18 +3,17 @@ package ru.gorr.finalproject.models.machines;
 import ru.gorr.finalproject.models.machines.elements.Lander;
 import ru.gorr.finalproject.models.machines.elements.RocketEngine;
 import ru.gorr.finalproject.models.machines.elements.RocketStage;
-import ru.gorr.finalproject.models.machines.elements.SpaceMachineElement;
+import ru.gorr.finalproject.models.telemetry.TelemetryMessage;
 import ru.gorr.finalproject.utils.SpaceConst;
 
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Queue;
-import java.util.Random;
 
 public class Rocket extends SpaceMachine {
     private final long timeStep = 100;
 
     private Queue<RocketStage> rocketStages = new ArrayDeque<>();
+    private int stagesCount;
     private RocketStage brakeUnit;
     private Lander lander;
 
@@ -24,7 +23,8 @@ public class Rocket extends SpaceMachine {
 
     private double velocity = 0;
 
-    private double totalFlyTime = 0;
+    private double realFlyTime = 0;
+    private double lastMessageTime = 0;
 
     public Rocket(String name) {
         super(name);
@@ -35,24 +35,10 @@ public class Rocket extends SpaceMachine {
 
         return rocketStagesWeight + brakeUnit.getWeight() + lander.getWeight();
     }
-    
-    public void fly() {
-        for (int i = 0; i < 5; i++) {
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-            getTelemetry().sendMessage("I'm flying! " + i);
-        }
-        
-        getTelemetry().sendMessage("FINISHED");
-    }
 
-    private double last = 0;
-    private void calculate(float timeScale) {
+    private void calculate(int timeScale) {
         double elapsedSeconds = (timeStep / 1000.0);
-        totalFlyTime += elapsedSeconds;
+        realFlyTime += elapsedSeconds / (float) timeScale;
 
         double earthGravityForce = SpaceConst.G * ((getWeight() * SpaceConst.EARTH_WEIGHT) / (getDistanceToEarthCenter() * getDistanceToEarthCenter()));
         double moonGravityForce = SpaceConst.G * ((getWeight() * SpaceConst.MOON_WEIGHT) / (getDistanceToMoonCenter() * getDistanceToMoonCenter()));
@@ -61,7 +47,7 @@ public class Rocket extends SpaceMachine {
             RocketStage currentStage = rocketStages.peek();
             RocketEngine engine = currentStage.getRocketEngine();
 
-            currentStage.getFuelTank().reduceFuel((float) (engine.getFuelConsumption() * elapsedSeconds * timeScale));
+            currentStage.getFuelTank().reduceFuel((float) (engine.getFuelConsumption() * elapsedSeconds));
 
             double jetThrustForce = engine.getGasExitRate() * engine.getFuelConsumption();
 
@@ -69,40 +55,53 @@ public class Rocket extends SpaceMachine {
 
             double acceleration = forcesSum / getWeight();
 
-            velocity = velocity + acceleration * elapsedSeconds * timeScale;
+            velocity = velocity + acceleration * elapsedSeconds;
 
             if (velocity > 0) {
-                height += velocity * elapsedSeconds * timeScale;
+                height += velocity * elapsedSeconds;
             }
 
             if (currentStage.getFuelTank().getWeight() == 0) {
                 rocketStages.poll();
 
-                getTelemetry().sendMessage("Отделил ступень " + (getDistanceToMoonCenter() - SpaceConst.MOON_RADIUS));
+                getTelemetry().sendImportantMessage(
+                        "Отделил ступень " + (getCurrentStageNumber() - 1),
+                        TelemetryMessage.Type.DISCONNECT_STAGE
+                );
             }
 
-            if (totalFlyTime - last >= 3) {
-                last = totalFlyTime;
-                getTelemetry().sendMessage("My velocity: " + velocity + "\nTo the Moon: " + (getDistanceToMoonCenter() - SpaceConst.MOON_RADIUS) + "\nCount: " + currentStage.getFuelTank().getWeight());
+            if (realFlyTime - lastMessageTime >= 3) {
+                lastMessageTime = realFlyTime;
+                getTelemetry().sendMessage(
+                        "Velocity: " + velocity + "; Acceleration: " + acceleration + "; Moon distance: " + getDistanceToMoon()
+                                + "; fuel: " + currentStage.getFuelTank().getWeight() + "; Current stage: " + getCurrentStageNumber(),
+                        TelemetryMessage.Type.INFO
+                );
             }
         } else {
             double forcesSum = -earthGravityForce + moonGravityForce;
 
             double acceleration = forcesSum / getWeight();
 
-            velocity = velocity + acceleration * elapsedSeconds * timeScale;
+            velocity = velocity + acceleration * elapsedSeconds;
 
             if (velocity > 0) {
-                height += velocity * elapsedSeconds * timeScale;
+                height += velocity * elapsedSeconds;
             }
 
-            if (totalFlyTime - last >= 3) {
-                last = totalFlyTime;
-                getTelemetry().sendMessage("My velocity: " + velocity + "\nTo the Moon: " + (getDistanceToMoonCenter() - SpaceConst.MOON_RADIUS));
+            if (realFlyTime - lastMessageTime >= 3) {
+                lastMessageTime = realFlyTime;
+                getTelemetry().sendMessage(
+                        "Velocity: " + velocity + "; Acceleration: " + acceleration
+                                + "; Moon distance: " + getDistanceToMoon() + "; Current stage: Free fly",
+                        TelemetryMessage.Type.INFO
+                );
             }
         }
 
-//        if (new Random().ne)
+        if (getDistanceToMoon() <= 0) {
+            isFinished = true;
+        }
     }
 
     private double getDistanceToEarthCenter() {
@@ -113,10 +112,23 @@ public class Rocket extends SpaceMachine {
         return SpaceConst.EARTH_MOON_DISTANCE - getDistanceToEarthCenter();
     }
 
-    public void startFlyingThread(float timeScale) {
+    private double getDistanceToMoon() {
+        return getDistanceToMoonCenter() - SpaceConst.MOON_RADIUS;
+    }
+
+    private int getCurrentStageNumber() {
+        return stagesCount - rocketStages.size() + 1;
+    }
+
+    public void startFlyingThread(int timeScale) {
         new Thread(() -> {
+            stagesCount = rocketStages.size();
+
             while (!isFinished) {
-                calculate(timeScale);
+                for (int i = 0; i < timeScale; i++) {
+                    if (!isFinished)
+                        calculate(timeScale);
+                }
 
                 try {
                     Thread.sleep(timeStep);
@@ -125,10 +137,8 @@ public class Rocket extends SpaceMachine {
                 }
             }
 
-            getTelemetry().sendMessage("FINISHED");
+            getTelemetry().sendImportantMessage("Fly complete", TelemetryMessage.Type.FINISHED);
         }).start();
-
-//        new Thread(this::fly).start();
     }
 
     public static class Builder {

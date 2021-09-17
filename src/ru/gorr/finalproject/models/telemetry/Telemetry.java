@@ -11,7 +11,7 @@ public class Telemetry<T extends SpaceMachine> extends Thread {
     private String tag;
     private long period;
     
-    private Deque<String> messages = new ArrayDeque<>();
+    private Deque<TelemetryMessage> messages = new ArrayDeque<>();
     
     private T machine;
     
@@ -36,7 +36,7 @@ public class Telemetry<T extends SpaceMachine> extends Thread {
     public void run() {
         while (!isClosed) {
             while (messages.size() > 0) {
-                messageConsumer.accept(machine, new TelemetryMessage(tag, messages.pollFirst()));
+                messageConsumer.accept(machine, messages.pollFirst());
             }
     
             try {
@@ -51,7 +51,11 @@ public class Telemetry<T extends SpaceMachine> extends Thread {
         isClosed = true;
     }
     
-    public void sendMessage(String message) {
-        messages.add(message);
+    public void sendMessage(String message, TelemetryMessage.Type messageType) {
+        messages.add(new TelemetryMessage(tag, message, messageType));
+    }
+
+    public void sendImportantMessage(String message, TelemetryMessage.Type messageType) {
+        messageConsumer.accept(machine, new TelemetryMessage(tag, message, messageType));
     }
 }

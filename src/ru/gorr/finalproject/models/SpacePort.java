@@ -23,7 +23,7 @@ public class SpacePort {
         if (newsConsumer != null)
             newsConsumer.accept(generateLaunchNews());
         
-        rocket.startFlyingThread(20);
+        rocket.startFlyingThread(500);
     }
     
     private News generateLaunchNews() {
